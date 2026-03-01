@@ -11,12 +11,13 @@ interface IVideoCall {
 interface IUser {
     uuid: string
     username: string
-    polite: string // "true" или "false"
+    polite: boolean // "true" или "false"
 }
 
 export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
     const [remoteUser, setRemoteUser] = useState<any>({})
     const [isConnected, setIsConnected] = useState(false)
+    const [isSharingScreen, setIsSharingScreen] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     const wsRef = useRef<WebSocket>(null)
@@ -92,6 +93,8 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
 
     // Создание PeerConnection
     const createPeerConnection = async () => {
+      console.log('createPeerConnection');
+      
         try {
             const configuration = {
                 iceServers: [
@@ -103,15 +106,17 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
             peerConnection.current = new RTCPeerConnection(configuration);
 
             peerConnection.current.onicecandidate = (event) => {
-                if (event.candidate) {
-                    wsRef.current?.send(JSON.stringify({
-                        type: 'ice-candidate',
-                        payload: {
-                            candidate: event.candidate,
-                            roomId: roomId
-                        }
-                    }));
-                }
+              console.log('Отправка кандидатов');
+              
+              if (event.candidate) {
+                  wsRef.current?.send(JSON.stringify({
+                      type: 'ice-candidate',
+                      payload: {
+                          candidate: event.candidate,
+                          roomId: roomId
+                      }
+                  }));
+              }
             };
 
             peerConnection.current.onconnectionstatechange = () => {
@@ -119,20 +124,33 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
             };
 
             peerConnection.current.ontrack = (event) => {
-                if (remoteVideo.current && event.streams[0]) {
-                    remoteVideo.current.srcObject = event.streams[0];
-                }
+              console.log('peerConnection.current.ontrack');
+                            
+              if (remoteVideo.current && event.streams[0]) {
+                  remoteVideo.current.srcObject = event.streams[0];
+              }
             };
 
-            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-            
+
+
+
+            const initialStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+              .catch(() => navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }));
+
             if (selfVideo.current) {
-                selfVideo.current.srcObject = stream;
+              selfVideo.current.srcObject = initialStream;
             }
 
-            stream.getTracks().forEach(track => {
-                peerConnection.current?.addTrack(track, stream);
-            });
+            const senders = peerConnection.current.getSenders();
+            for (const track of initialStream.getTracks()) {
+              const sender = senders.find(s => s.track?.kind === track.kind);
+              if (sender) {
+                await sender.replaceTrack(track);
+              } else {
+                // Если по какой-то причине сендера нет, добавляем трек (как запасной вариант)
+                peerConnection.current.addTrack(track, initialStream);
+              }
+            }
 
         } catch (error) {
             console.error('Error creating peer connection:', error);
@@ -142,6 +160,8 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
 
     // Создание offer
     const createOffer = async (user: IUser) => {
+      console.log('createOffer');
+      
         if (!peerConnection.current) {
             await createPeerConnection();
         }
@@ -172,21 +192,27 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
     const handleWebSocketMessage = useCallback(async (data: any) => {
         try {
             switch (data.type) {
-                case 'joined':
-                    console.log('Тут типа мне камбэкается инфа что я заджоинился и полит ставится. Если я первый в комнате, то вежливый, остальные -неевежливые:', data);
-                    polite.current = (data.payload.polite);
-                    console.log('data?.otherUsers?.[0] === ', data?.otherUsers?.[0]);
-                    
-                    setRemoteUser(data?.otherUsers?.[0])
-                    break;
-
-                case 'user-joined':
-                    console.log('User joined:', data.payload);
-                    setRemoteUser(data.payload);
-                    if (data.payload.userId !== user.uuid && polite.current) {
+            case 'joined':
+                polite.current = data.payload.polite
+                const otherUser = data?.otherUsers?.[0];
+                if (otherUser) {
+                    setRemoteUser(otherUser);
+                    // Если мы вежливые, предлагаем соединение
+                    if (polite.current) {
                         await createOffer(user);
                     }
-                    break;
+                }
+                break;
+
+                case 'user-joined':
+                  console.log('User joined:', data.payload);
+                  if (data.payload.userId !== user.uuid) {
+                      setRemoteUser(data.payload);
+                      if (polite.current) {
+                          await createOffer(user);
+                      }
+                  }
+                  break;
 
                 case 'user-left':
                     console.log('User left:', data.payload);
@@ -225,12 +251,13 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
                     isSettingRemoteAnswerPending.current = false;
 
                     // Так как мы уже в блоке offer, то тут if не нужен
-                    await peerConnection.current.setLocalDescription();
+                    const answer = await peerConnection.current.createAnswer();
+                    await peerConnection.current.setLocalDescription(answer);
 
                     wsRef.current?.send(JSON.stringify({
                         type: 'answer',
                         payload: {
-                            description: peerConnection.current.localDescription,
+                            description: answer,
                             roomId: roomId
                         }
                     }));
@@ -239,8 +266,12 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
                 }
 
                 case 'answer':
+                  console.log('принимаю answer');
+                  
                     if (peerConnection.current && 
                         peerConnection.current.signalingState === 'have-local-offer') {
+                        console.log('Устанавливаю ремоут sdp');
+                        
                         await peerConnection.current.setRemoteDescription(data.payload.description);
                     }
                     break;
@@ -266,6 +297,61 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
         }
     }, [user.uuid, polite.current]);
 
+    const shareScreen = async () => {
+      try {
+        // Получаем новый поток в зависимости от текущего состояния
+        const newStream = isSharingScreen
+          ? await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+          : await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+
+        // Обновляем локальное видео
+        if (selfVideo.current) {
+          selfVideo.current.srcObject = newStream;
+        }
+
+        // Заменяем треки в peerConnection
+        const senders = peerConnection.current?.getSenders() || [];
+        for (const track of newStream.getTracks()) {
+          const sender = senders.find(s => s.track?.kind === track.kind);
+          if (sender) {
+            await sender.replaceTrack(track);
+          } else {
+            // Если нет подходящего сендера (маловероятно), добавляем новый трек
+            peerConnection.current?.addTrack(track, newStream);
+          }
+        }
+
+        // Переключаем состояние
+        setIsSharingScreen(!isSharingScreen);
+      } catch (err) {
+        console.error('Error sharing screen:', err);
+      }
+    };
+
+    // useEffect(() => {
+    //   const initSelfStream = async () => {
+    //     try {
+    //       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });        
+    //       if (selfVideo.current) {
+    //           selfVideo.current.srcObject = stream;
+    //       }
+
+    //       stream.getTracks().forEach(track => {
+    //           peerConnection.current?.addTrack(track, stream);
+    //       });
+    //     } catch (error) {
+    //       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });        
+    //       if (selfVideo.current) {
+    //           selfVideo.current.srcObject = stream;
+    //       }
+
+    //       stream.getTracks().forEach(track => {
+    //           peerConnection.current?.addTrack(track, stream);
+    //       });
+    //     }
+    //   }
+    //   initSelfStream()
+    // }, [])
 
   return (
     <div className={styles.container}>
@@ -276,7 +362,15 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
           </div>
         </div>
       </div>
-
+        <div>
+          <div>
+            {!isSharingScreen ? 
+              <button onClick={(e) => shareScreen(e)}>Включить демонстрацию</button>            
+              :
+              <button onClick={(e) => shareScreen(e)}>Прекратить демонстрацию</button>            
+            }
+          </div>
+        </div>
         <div className={styles.videoGrid}>
           <div className={styles.videoContainer}>
             <video
