@@ -1,0 +1,41 @@
+.container {
+    padding: 100px;
+    height: 100vh;
+    // width: 100%;
+    background-color: rgb(255, 227, 191);
+}
+
+.hello {
+    position: sticky;
+    top: 0;
+    left: 0;
+}
+
+.container2 {
+    width: 100%;
+    height: 590px;
+    padding: 10px;
+    margin: auto;
+    background-color: rgb(163, 68, 68);
+    overflow: hidden;
+
+    padding-top: 50px;
+
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    align-content: start;
+    gap: 12px;
+}
+
+.text {
+    flex: 1 1 100px;
+    height: 100px;
+    background-color: blue;
+    box-sizing: border-box;
+
+    margin: 0px;
+
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis; 
+}

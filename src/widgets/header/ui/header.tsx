@@ -22,7 +22,7 @@ export const Header: React.FC<IHeader> = ({userData}) => {
             <a href="/">Начать трансляцию</a>
             <a href="#">О нас</a>
             <a href="#">Услуги</a>
-            <a href="#">Контакты</a>
+            <a href="/cont">Контакты</a>
             </nav>
             <div>
                 {userData?.username ? userData?.username

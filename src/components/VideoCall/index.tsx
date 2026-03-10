@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { RemoteVideo } from '../remoteVideo';
+
 import styles from './styles.module.scss'
 
 interface IVideoCall {
@@ -385,17 +387,7 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
             </div>
           </div>
 
-          <div className={styles.videoContainer}>
-            <video
-              ref={remoteVideo}
-              autoPlay
-              playsInline
-              className={styles.video}
-            />
-            <div className={styles.videoLabel}>
-              {remoteUser?.username}
-            </div>
-          </div>
+          <RemoteVideo remoteVideoRef={remoteVideo} remoteUserRef={remoteUser}/>
         </div>
       </div>
   );
