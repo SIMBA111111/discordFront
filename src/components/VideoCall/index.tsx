@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { RemoteVideo } from '../remoteVideo';
 
 import styles from './styles.module.scss'
+import { ControlPanel } from '../controlPanel';
 
 interface IVideoCall {
     user: any
@@ -16,10 +17,16 @@ interface IUser {
     polite: boolean // "true" или "false"
 }
 
+export interface IVideoAudio {
+    video: boolean
+    audio: boolean
+}
+
 export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
     const [remoteUser, setRemoteUser] = useState<any>({})
     const [isConnected, setIsConnected] = useState(false)
     const [isSharingScreen, setIsSharingScreen] = useState(false)
+    const [isVideoAudio, setIsVideoAudio] = useState<IVideoAudio>({video: true, audio: true})
     const [error, setError] = useState<string | null>(null)
 
     const wsRef = useRef<WebSocket>(null)
@@ -136,8 +143,10 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
 
 
 
-            const initialStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-              .catch(() => navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }));
+            // const initialStream = await navigator.mediaDevices.getUserMedia({ video: isVideoAudio.video, audio: isVideoAudio.audio })
+            //   .catch(() => navigator.mediaDevices.getDisplayMedia({ video: isVideoAudio.video, audio: isVideoAudio.audio }));
+
+            const initialStream = await navigator.mediaDevices.getDisplayMedia({ video: isVideoAudio.video, audio: isVideoAudio.audio })
 
             if (selfVideo.current) {
               selfVideo.current.srcObject = initialStream;
@@ -330,30 +339,36 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
       }
     };
 
-    // useEffect(() => {
-    //   const initSelfStream = async () => {
-    //     try {
-    //       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });        
-    //       if (selfVideo.current) {
-    //           selfVideo.current.srcObject = stream;
-    //       }
+    useEffect(() => {
+      const initSelfStream = async () => {
+        try {
+            // TO DO удалить. это для теста тогла видео аудио
+            throw new Error
 
-    //       stream.getTracks().forEach(track => {
-    //           peerConnection.current?.addTrack(track, stream);
-    //       });
-    //     } catch (error) {
-    //       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });        
-    //       if (selfVideo.current) {
-    //           selfVideo.current.srcObject = stream;
-    //       }
 
-    //       stream.getTracks().forEach(track => {
-    //           peerConnection.current?.addTrack(track, stream);
-    //       });
-    //     }
-    //   }
-    //   initSelfStream()
-    // }, [])
+        //   const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });        
+        //   if (selfVideo.current) {
+        //       selfVideo.current.srcObject = stream;
+        //   }
+
+        //   stream.getTracks().forEach(track => {
+        //       peerConnection.current?.addTrack(track, stream);
+        //   });
+        } catch (error) {
+          const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });        
+          if (selfVideo.current) {
+              selfVideo.current.srcObject = stream;
+          }
+
+          stream.getTracks().forEach(track => {
+              peerConnection.current?.addTrack(track, stream);
+          });
+        }
+      }
+      initSelfStream()
+    }, [])
+
+    
 
   return (
     <div className={styles.container}>
@@ -367,14 +382,16 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
         <div>
           <div>
             {!isSharingScreen ? 
-              <button onClick={(e) => shareScreen(e)}>Включить демонстрацию</button>            
+              <button onClick={(e) => shareScreen()}>Включить демонстрацию</button>            
               :
-              <button onClick={(e) => shareScreen(e)}>Прекратить демонстрацию</button>            
+              <button onClick={(e) => shareScreen()}>Прекратить демонстрацию</button>            
             }
           </div>
         </div>
         <div className={styles.videoGrid}>
           <div className={styles.videoContainer}>
+            {!isVideoAudio.video && <div>видео потока нет</div>}
+            {!isVideoAudio.audio && <div>звук выключен</div>}
             <video
               ref={selfVideo}
               autoPlay
@@ -384,6 +401,10 @@ export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
             />
             <div className={styles.videoLabel}>
               {user.username}
+            </div>
+
+            <div className={styles.controlPanel}>
+                <ControlPanel peerConnectionRef={peerConnection} isVideoAudio={isVideoAudio} setIsVideoAudio={setIsVideoAudio} selfVideoRef={selfVideo}/>
             </div>
           </div>
 
