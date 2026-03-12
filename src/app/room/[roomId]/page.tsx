@@ -1,71 +1,57 @@
+// app/room/[roomId]/page.tsx
+'use client';
 
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import {VideoCall} from '@/components/VideoCall';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { VideoCall } from '@/components/VideoCall';
 import styles from './styles.module.scss';
 
-async function validateRoom(roomId: string) {
-  try {
-    const response = await fetch(`http://localhost:8080/api/rooms/${roomId}`, {
-      // Добавляем cache: 'no-store' чтобы всегда получать актуальные данные
-      cache: 'no-store'
-    });
-    return response.ok;
-  } catch (err) {
-    console.error('Failed to validate room:', err);
-    return false;
-  }
-}
+export default function RoomPage() {
+  const params = useParams();
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-export default async function RoomPage({ params }: { params: Promise<{ roomId: string }> }) {
-  const { roomId } = await params;
-  
-  const cookieStore = await cookies();
-  const userDataCookie = cookieStore.get('userData')?.value;
-  
-
-  let user = {
-    username: '',
-    uuid: ''
-  };
-  
-  if (userDataCookie) {
-    try {
-      const userData = JSON.parse(userDataCookie);
-      
-      if (userData.username) {
-        user.username = userData.username;
-        user.uuid = userData.id;
-      }
-    } catch (e) {
-      console.error('Ошибка парсинга cookie:', e);
+  useEffect(() => {
+    // Получаем roomId из params - ключ должен совпадать с именем папки!
+    if (params && params.roomId) {
+      const id = Array.isArray(params.roomId) ? params.roomId[0] : params.roomId;
+      console.log('🔥 Room ID from URL:', id);
+      setRoomId(id);
+    } else {
+      console.error('❌ No room ID in params:', params);
     }
-  }
+  }, [params]);
 
-  // Валидируем комнату на сервере
-  // const isValid = await validateRoom(roomId);
+  useEffect(() => {
+    // Создаем пользователя
+    const initUser = () => {
+      let savedUser = localStorage.getItem('webrtc_user');
+      
+      if (savedUser) {
+        setUser(JSON.parse(savedUser));
+      } else {
+        const newUser = {
+          uuid: crypto.randomUUID(),
+          username: `User_${Math.floor(Math.random() * 1000)}`
+        };
+        localStorage.setItem('webrtc_user', JSON.stringify(newUser));
+        setUser(newUser);
+      }
+      
+      setLoading(false);
+    };
 
-  // if (!isValid) {
-  //   // Если комната невалидна, показываем страницу с ошибкой
-  //   return (
-  //     <div className={styles.errorContainer}>
-  //       <div className={styles.errorCard}>
-  //         <h1 className={styles.errorTitle}>Error</h1>
-  //         <p className={styles.errorMessage}>Invalid room</p>
-  //         <a href="/" className={styles.errorButton}>
-  //           Go Home
-  //         </a>
-  //       </div>
-  //     </div>
-  //   );
-  // }
+    initUser();
+  }, []);
 
-  // Если всё ок, рендерим VideoCall на клиенте
+  if (loading) return <div className={styles.loading}>Loading...</div>;
+  if (!roomId) return <div className={styles.error}>Room ID not found</div>;
+  if (!user) return <div className={styles.error}>Error creating user</div>;
+
   return (
-    <VideoCall
-      roomId={roomId}
-      user={user}
-      // signalingUrl={`ws://localhost:8080?roomId=${roomId}`}
-    />
+    <div className={styles.container}>
+      <VideoCall user={user} roomId={roomId} />
+    </div>
   );
 }

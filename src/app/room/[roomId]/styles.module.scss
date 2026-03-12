@@ -1,54 +1,96 @@
-.loadingContainer {
-  min-height: 100vh;
-  background-color: #111827;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.container {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #1a1a1a;
 }
 
-.loadingText {
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
   color: white;
-  font-size: 1.5rem;
+  font-size: 18px;
 }
 
-.errorContainer {
-  min-height: 100vh;
-  background-color: #111827;
+.error {
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 1rem;
+  align-items: center;
+  height: 100vh;
+  color: #ff4444;
+  font-size: 18px;
 }
 
-.errorCard {
-  background-color: #1f2937;
-  padding: 2rem;
-  border-radius: 0.5rem;
+.joinContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.joinBox {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  padding: 40px;
+  border-radius: 20px;
   text-align: center;
-  max-width: 400px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+
+  h2 {
+    color: white;
+    font-size: 28px;
+    margin-bottom: 10px;
+  }
+
+  p {
+    color: rgba(255, 255, 255, 0.9);
+    margin-bottom: 30px;
+  }
+}
+
+.nameInput {
   width: 100%;
-}
-
-.errorTitle {
-  font-size: 2rem;
-  font-weight: bold;
-  color: #ef4444;
-  margin-bottom: 1rem;
-}
-
-.errorMessage {
-  color: #d1d5db;
-  margin-bottom: 1.5rem;
-}
-
-.errorButton {
-  background-color: #3b82f6;
+  padding: 15px 20px;
+  font-size: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
   color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  transition: background-color 0.2s;
+  margin-bottom: 20px;
+  outline: none;
+  transition: border-color 0.2s;
+
+  &:focus {
+    border-color: #4CAF50;
+  }
+
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+  }
 }
 
-.errorButton:hover {
-  background-color: #2563eb;
+.joinButton {
+  padding: 15px 40px;
+  font-size: 18px;
+  font-weight: 600;
+  color: white;
+  background: #4CAF50;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+  width: 100%;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    background: #45a049;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }

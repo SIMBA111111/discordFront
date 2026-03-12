@@ -1,415 +1,206 @@
+// app/components/VideoCall/index.tsx
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Peer from 'peerjs';
 import { RemoteVideo } from '../remoteVideo';
-
-import styles from './styles.module.scss'
-import { ControlPanel } from '../controlPanel';
+import styles from './styles.module.scss';
 
 interface IVideoCall {
-    user: any
-    roomId: string
+  user: any;
+  roomId: string;
 }
 
-interface IUser {
-    uuid: string
-    username: string
-    polite: boolean // "true" или "false"
+interface RemoteUser {
+  peerId: string;
+  username: string;
+  stream: MediaStream;
+  videoRef: React.RefObject<HTMLVideoElement>;
 }
 
-export interface IVideoAudio {
-    video: boolean
-    audio: boolean
-}
+export const VideoCall: React.FC<IVideoCall> = ({ user, roomId }) => {
+  const [remoteUsers, setRemoteUsers] = useState<Map<string, RemoteUser>>(new Map());
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [peerId, setPeerId] = useState<string>('');
 
-export const VideoCall: React.FC<IVideoCall> = ({user, roomId}: IVideoCall) => {
-    const [remoteUser, setRemoteUser] = useState<any>({})
-    const [isConnected, setIsConnected] = useState(false)
-    const [isSharingScreen, setIsSharingScreen] = useState(false)
-    const [isVideoAudio, setIsVideoAudio] = useState<IVideoAudio>({video: true, audio: true})
-    const [error, setError] = useState<string | null>(null)
+  const peerRef = useRef<Peer | null>(null);
+  const selfVideo = useRef<HTMLVideoElement>(null);
 
-    const wsRef = useRef<WebSocket>(null)
-    const selfVideo = useRef<HTMLVideoElement>(null)
-    const remoteVideo = useRef<HTMLVideoElement>(null)
-    const peerConnection = useRef<RTCPeerConnection | null>(null)
-
-    
-    // Используем useRef для флагов, чтобы они сохранялись между рендерами
-    const polite = useRef(true)
-    const makingOffer = useRef(false)
-    const ignoreOffer = useRef(false)
-    const isSettingRemoteAnswerPending = useRef(false)
-
-    // Инициализация WebSocket
-    useEffect(() => {
-        const connectWebSocket = () => {
-            try {
-                const wsUrl = `ws://localhost:8080/ws?roomId=${roomId}&userId=${user.uuid}&username=${user.username}`;
-                wsRef.current = new WebSocket(wsUrl);
-
-                wsRef.current.onopen = () => {
-                    console.log('WebSocket connected');
-                    setIsConnected(true);
-                    setError(null);
-                    
-                    wsRef.current?.send(JSON.stringify({
-                        type: 'join',
-                        payload: {
-                            userId: user.uuid,
-                            username: user.username,
-                            roomId: roomId
-                        }
-                    }));
-                };
-
-                wsRef.current.onclose = () => {
-                    console.log('WebSocket disconnected');
-                    setIsConnected(false);
-                    setTimeout(connectWebSocket, 3000);
-                };
-
-                wsRef.current.onerror = (error) => {
-                    console.error('WebSocket error:', error);
-                    setError('WebSocket connection error');
-                };
-
-                wsRef.current.onmessage = async (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        await handleWebSocketMessage(data);
-                    } catch (error) {
-                        console.error('Error parsing WebSocket message:', error);
-                    }
-                };
-            } catch (error) {
-                console.error('Error creating WebSocket:', error);
-                setError('Failed to create WebSocket connection');
-            }
-        };
-
-        connectWebSocket();
-
-        return () => {
-            if (wsRef.current) {
-                wsRef.current.close();
-            }
-            if (peerConnection.current) {
-                peerConnection.current.close();
-            }
-        };
-    }, [roomId, user.uuid]);
-
-    // Создание PeerConnection
-    const createPeerConnection = async () => {
-      console.log('createPeerConnection');
-      
-        try {
-            const configuration = {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
-            };
-
-            peerConnection.current = new RTCPeerConnection(configuration);
-
-            peerConnection.current.onicecandidate = (event) => {
-              console.log('Отправка кандидатов');
-              
-              if (event.candidate) {
-                  wsRef.current?.send(JSON.stringify({
-                      type: 'ice-candidate',
-                      payload: {
-                          candidate: event.candidate,
-                          roomId: roomId
-                      }
-                  }));
-              }
-            };
-
-            peerConnection.current.onconnectionstatechange = () => {
-                console.log('Connection state:', peerConnection.current?.connectionState);
-            };
-
-            peerConnection.current.ontrack = (event) => {
-              console.log('peerConnection.current.ontrack');
-                            
-              if (remoteVideo.current && event.streams[0]) {
-                  remoteVideo.current.srcObject = event.streams[0];
-              }
-            };
-
-
-
-
-            // const initialStream = await navigator.mediaDevices.getUserMedia({ video: isVideoAudio.video, audio: isVideoAudio.audio })
-            //   .catch(() => navigator.mediaDevices.getDisplayMedia({ video: isVideoAudio.video, audio: isVideoAudio.audio }));
-
-            const initialStream = await navigator.mediaDevices.getDisplayMedia({ video: isVideoAudio.video, audio: isVideoAudio.audio })
-
-            if (selfVideo.current) {
-              selfVideo.current.srcObject = initialStream;
-            }
-
-            const senders = peerConnection.current.getSenders();
-            for (const track of initialStream.getTracks()) {
-              const sender = senders.find(s => s.track?.kind === track.kind);
-              if (sender) {
-                await sender.replaceTrack(track);
-              } else {
-                // Если по какой-то причине сендера нет, добавляем трек (как запасной вариант)
-                peerConnection.current.addTrack(track, initialStream);
-              }
-            }
-
-        } catch (error) {
-            console.error('Error creating peer connection:', error);
-            setError('Failed to create peer connection');
-        }
-    };
-
-    // Создание offer
-    const createOffer = async (user: IUser) => {
-      console.log('createOffer');
-      
-        if (!peerConnection.current) {
-            await createPeerConnection();
-        }
-
-        if (!peerConnection.current) return;
-
-        try {
-            makingOffer.current = true;
-            const offer = await peerConnection.current.createOffer();
-            await peerConnection.current.setLocalDescription(offer);
-            
-            wsRef.current?.send(JSON.stringify({
-                type: 'offer',
-                payload: {
-                    description: offer,
-                    roomId: roomId,
-                    user: user
-                }
-            }));
-        } catch (error) {
-            console.error('Error creating offer:', error);
-        } finally {
-            makingOffer.current = false;
-        }
-    };
-
-    // Обработчик сообщений WebSocket с логикой коллизий
-    const handleWebSocketMessage = useCallback(async (data: any) => {
-        try {
-            switch (data.type) {
-            case 'joined':
-                polite.current = data.payload.polite
-                const otherUser = data?.otherUsers?.[0];
-                if (otherUser) {
-                    setRemoteUser(otherUser);
-                    // Если мы вежливые, предлагаем соединение
-                    if (polite.current) {
-                        await createOffer(user);
-                    }
-                }
-                break;
-
-                case 'user-joined':
-                  console.log('User joined:', data.payload);
-                  if (data.payload.userId !== user.uuid) {
-                      setRemoteUser(data.payload);
-                      if (polite.current) {
-                          await createOffer(user);
-                      }
-                  }
-                  break;
-
-                case 'user-left':
-                    console.log('User left:', data.payload);
-                    setRemoteUser({});
-                    if (peerConnection.current) {
-                        peerConnection.current.close();
-                        peerConnection.current = null;
-                    }
-                    break;
-
-                case 'offer': {
-                    // Логика обработки коллизий для offer
-                    if (!peerConnection.current) {
-                        await createPeerConnection();
-                    }
-
-                    if (!peerConnection.current) return;
-
-                    // Проверяем готовность к получению offer
-                    const readyForOffer = !makingOffer.current && 
-                        (peerConnection.current.signalingState === "stable" || isSettingRemoteAnswerPending.current);
-                    
-                    // Определяем коллизию offer
-                    const offerCollision = !readyForOffer;
-
-                    // Устанавливаем ignoreOffer в зависимости от вежливости и коллизии
-                    ignoreOffer.current = !polite.current && offerCollision;
-                    
-                    if (ignoreOffer.current) {
-                        console.log('Ignoring offer due to collision (impolite peer)');
-                        return;
-                    }
-
-                    isSettingRemoteAnswerPending.current = true;
-                    await peerConnection.current.setRemoteDescription(data.payload.description);
-                    isSettingRemoteAnswerPending.current = false;
-
-                    // Так как мы уже в блоке offer, то тут if не нужен
-                    const answer = await peerConnection.current.createAnswer();
-                    await peerConnection.current.setLocalDescription(answer);
-
-                    wsRef.current?.send(JSON.stringify({
-                        type: 'answer',
-                        payload: {
-                            description: answer,
-                            roomId: roomId
-                        }
-                    }));
-                    
-                    break;
-                }
-
-                case 'answer':
-                  console.log('принимаю answer');
-                  
-                    if (peerConnection.current && 
-                        peerConnection.current.signalingState === 'have-local-offer') {
-                        console.log('Устанавливаю ремоут sdp');
-                        
-                        await peerConnection.current.setRemoteDescription(data.payload.description);
-                    }
-                    break;
-
-                case 'ice-candidate':
-                    try {
-                        if (peerConnection.current) {
-                            await peerConnection.current.addIceCandidate(data.payload.candidate);
-                        }
-                    } catch (err) {
-                        // Игнорируем ошибки добавления кандидатов, если мы игнорируем offer
-                        if (!ignoreOffer.current) {
-                            throw err;
-                        }
-                    }
-                    break;
-
-                default:
-                    console.log('Unknown message type:', data.type);
-            }
-        } catch (error) {
-            console.error('Error handling message:', error);
-        }
-    }, [user.uuid, polite.current]);
-
-    const shareScreen = async () => {
+  // 1. ИНИЦИАЛИЗАЦИЯ ЛОКАЛЬНОГО ВИДЕО - ПЕРВОЕ ДЕЛО!
+  useEffect(() => {
+    const initLocalStream = async () => {
       try {
-        // Получаем новый поток в зависимости от текущего состояния
-        const newStream = isSharingScreen
-          ? await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-          : await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        console.log('🎥 Запрашиваю камеру...');
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
 
-        // Обновляем локальное видео
         if (selfVideo.current) {
-          selfVideo.current.srcObject = newStream;
+          selfVideo.current.srcObject = stream;
+          await selfVideo.current.play();
         }
 
-        // Заменяем треки в peerConnection
-        const senders = peerConnection.current?.getSenders() || [];
-        for (const track of newStream.getTracks()) {
-          const sender = senders.find(s => s.track?.kind === track.kind);
-          if (sender) {
-            await sender.replaceTrack(track);
-          } else {
-            // Если нет подходящего сендера (маловероятно), добавляем новый трек
-            peerConnection.current?.addTrack(track, newStream);
-          }
-        }
-
-        // Переключаем состояние
-        setIsSharingScreen(!isSharingScreen);
-      } catch (err) {
-        console.error('Error sharing screen:', err);
+        setLocalStream(stream);
+        console.log('✅ Локальное видео готово');
+      } catch (error) {
+        console.error('❌ Ошибка камеры:', error);
       }
     };
 
-    useEffect(() => {
-      const initSelfStream = async () => {
-        try {
-            // TO DO удалить. это для теста тогла видео аудио
-            throw new Error
+    initLocalStream();
+  }, []);
 
+  // 2. ИНИЦИАЛИЗАЦИЯ PEERJS (ТОЛЬКО ПОСЛЕ ТОГО КАК ЕСТЬ localStream)
+  useEffect(() => {
+    if (!localStream) return; // Ждем пока появится видео!
 
-        //   const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });        
-        //   if (selfVideo.current) {
-        //       selfVideo.current.srcObject = stream;
-        //   }
+    const initPeer = async () => {
+      console.log('🔌 Подключаюсь к PeerJS серверу...');
+      
+      // Регистрируемся в комнате
+      await fetch(`http://localhost:8080/api/room/${roomId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          peerId: user.uuid,
+          username: user.username 
+        })
+      });
 
-        //   stream.getTracks().forEach(track => {
-        //       peerConnection.current?.addTrack(track, stream);
-        //   });
-        } catch (error) {
-          const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });        
-          if (selfVideo.current) {
-              selfVideo.current.srcObject = stream;
-          }
+      // Создаем Peer
+      const peer = new Peer(user.uuid, {
+        host: 'localhost',
+        port: 8080,
+        path: '/peerjs',
+        debug: 3
+      });
 
-          stream.getTracks().forEach(track => {
-              peerConnection.current?.addTrack(track, stream);
+      peer.on('open', (id) => {
+        console.log('✅ PeerJS подключен, ID:', id);
+        setPeerId(id);
+        
+        // После подключения начинаем искать других
+        setTimeout(() => connectToOthers(peer), 1000);
+      });
+
+      // Обработка входящих звонков
+      peer.on('call', (call) => {
+        console.log('📞 Входящий звонок от:', call.peer);
+        
+        // Отвечаем своим видео
+        call.answer(localStream);
+        
+        call.on('stream', (remoteStream) => {
+          console.log('📺 Получено видео от:', call.peer);
+          
+          // Получаем имя звонящего
+          fetch(`http://localhost:8080/api/room/${roomId}/user/${call.peer}`)
+            .then(res => res.json())
+            .then(data => {
+              const videoRef = React.createRef<HTMLVideoElement>();
+              
+              setRemoteUsers(prev => {
+                const newMap = new Map(prev);
+                newMap.set(call.peer, {
+                  peerId: call.peer,
+                  username: data.username,
+                  stream: remoteStream,
+                  videoRef
+                });
+                return newMap;
+              });
+            });
+        });
+      });
+
+      peerRef.current = peer;
+    };
+
+    initPeer();
+
+    return () => {
+      peerRef.current?.destroy();
+    };
+  }, [localStream, roomId, user.uuid, user.username]);
+
+  // 3. ФУНКЦИЯ ПОИСКА И ПОДКЛЮЧЕНИЯ К ДРУГИМ
+  const connectToOthers = async (peer: Peer) => {
+    try {
+      console.log('🔍 Ищу других участников...');
+      
+      const response = await fetch(`http://localhost:8080/api/room/${roomId}`);
+      const data = await response.json();
+      
+      console.log('👥 Участники комнаты:', data.participants);
+      
+      // Звоним всем, кроме себя
+      for (const participantId of data.participants) {
+        if (participantId !== user.uuid && !remoteUsers.has(participantId) && localStream) {
+          console.log('📞 Звоню участнику:', participantId);
+          
+          const call = peer.call(participantId, localStream);
+          
+          call.on('stream', (remoteStream) => {
+            console.log('📺 Получено видео от:', participantId);
+            
+            fetch(`http://localhost:8080/api/room/${roomId}/user/${participantId}`)
+              .then(res => res.json())
+              .then(data => {
+                const videoRef = React.createRef<HTMLVideoElement>();
+                
+                setRemoteUsers(prev => {
+                  const newMap = new Map(prev);
+                  newMap.set(participantId, {
+                    peerId: participantId,
+                    username: data.username,
+                    stream: remoteStream,
+                    videoRef
+                  });
+                  return newMap;
+                });
+              });
           });
         }
       }
-      initSelfStream()
-    }, [])
+    } catch (error) {
+      console.error('❌ Ошибка подключения:', error);
+    }
+  };
 
-    
+  // 4. Привязываем стримы к видео-элементам
+  useEffect(() => {
+    remoteUsers.forEach((remoteUser) => {
+      if (remoteUser.videoRef.current && remoteUser.stream) {
+        remoteUser.videoRef.current.srcObject = remoteUser.stream;
+      }
+    });
+  }, [remoteUsers]);
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <div className={styles.headerContent}>
-          <h1 className={styles.title}>Video Conference</h1>
-          <div className={styles.roomInfo}>
-          </div>
-        </div>
+        <div>Комната: {roomId}</div>
+        <div>Участников: {remoteUsers.size + 1}</div>
+        <div>Мой ID: {peerId.slice(0, 8)}...</div>
       </div>
-        <div>
-          <div>
-            {!isSharingScreen ? 
-              <button onClick={(e) => shareScreen()}>Включить демонстрацию</button>            
-              :
-              <button onClick={(e) => shareScreen()}>Прекратить демонстрацию</button>            
-            }
-          </div>
-        </div>
-        <div className={styles.videoGrid}>
-          <div className={styles.videoContainer}>
-            {!isVideoAudio.video && <div>видео потока нет</div>}
-            {!isVideoAudio.audio && <div>звук выключен</div>}
-            <video
-              ref={selfVideo}
-              autoPlay
-              playsInline
-              muted
-              className={styles.video}
-            />
-            <div className={styles.videoLabel}>
-              {user.username}
-            </div>
 
-            <div className={styles.controlPanel}>
-                <ControlPanel peerConnectionRef={peerConnection} isVideoAudio={isVideoAudio} setIsVideoAudio={setIsVideoAudio} selfVideoRef={selfVideo}/>
-            </div>
-          </div>
-
-          <RemoteVideo remoteVideoRef={remoteVideo} remoteUserRef={remoteUser}/>
+      <div className={styles.videoGrid}>
+        {/* Свое видео */}
+        <div className={styles.videoContainer}>
+          <video ref={selfVideo} autoPlay playsInline muted className={styles.video} />
+          <div className={styles.videoLabel}>{user.username} (ты)</div>
         </div>
+
+        {/* Видео других */}
+        {Array.from(remoteUsers.values()).map((remoteUser) => (
+          <RemoteVideo
+            key={remoteUser.peerId}
+            videoRef={remoteUser.videoRef}
+            username={remoteUser.username}
+          />
+        ))}
       </div>
+    </div>
   );
-}
+};
